@@ -1,0 +1,3 @@
+name: nestjs-module-service
+version: "0.1.0"
+description: Convenciones, estructura, trazabilidad (@Trace) y enriquecimiento para servicios en NestJS

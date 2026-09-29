@@ -3,10 +3,10 @@ name: nestjs-create-table
 description: |
   ESPAÑOL - Guía para CREAR TABLAS, MODELOS y ENTIDADES de base de datos.
   Usa esta skill cuando el usuario pida: crear tabla, nuevo modelo, nueva entidad,
-  agregar campo, crear repositorio, crear seed, definir esquema, foreign key,
+  agregar campo, crear queries, crear seed, definir esquema, foreign key,
   relaciones entre tablas, índices, enums, migraciones, o cualquier tarea
   relacionada con la estructura de la base de datos usando Drizzle ORM.
-  Incluye: definición de esquemas, repositorios CRUD, y seeders.
+  Incluye: definición de esquemas, queries atómicas y con joins, y seeders.
 ---
 
 # NestJS Table Creation Workflow
@@ -14,7 +14,7 @@ description: |
 This skill details the process of adding a new database entity. The workflow consists of 4 steps:
 
 1. **Define Schema** (Table)
-2. **Create Repository** (Data Access)
+2. **Create Queries** (Data Access: Atomic & Joins)
 3. **Create Seeder** (Initial Data)
 4. **Register** (Connection & Main Seeder)
 
@@ -78,6 +78,9 @@ export const pet = pgTable(
     // ... standard timestamp columns ...
     name: varchar('name', { length: 100 }).notNull(),
     photos: text('photos').array(), // Array type
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    deletedAt: timestamp('deleted_at'),
 
     // Foreign Keys
     breedId: integer('breed_id')
@@ -96,21 +99,23 @@ export const pet = pgTable(
 
 ---
 
-## 2. Create Repository (`src/repositories/`)
+## 2. Create Queries (`src/queries/[table-name]/`)
 
-The repository handles CRUD and complex queries like pagination.
+Queries replace the traditional repository layer. Each table has its own directory inside `src/queries/[table-name]/` with two specialized files:
 
-Example: `user.repository.ts`
+1. **Atomic Queries (`[table-name].query.ts`)**: Direct operations on the specific table (CRUD, single-table pagination, summary).
+2. **Join Queries (`[table-name]-join.query.ts`)**: Multi-table queries that use the table as the base query and perform relations (`innerJoin`, `leftJoin`, `rightJoin`, etc.).
+
+### A. Atomic Query Example: `src/queries/user/user.query.ts`
 
 ```typescript
 import { Injectable } from '@nestjs/common';
 import { eq, ilike, or, and, isNull, count, desc, sql } from 'drizzle-orm';
 import { database } from '@db/connection.db';
-import { user, UserDTO, userRoleEnum } from '@db/tables/user.table';
+import { user, UserDTO } from '@db/tables/user.table';
 
 @Injectable()
-export class UserRepository {
-  // Parsing Helper for Enums
+export class UserQuery {
   async findAllPaginated(page: number = 1, limit: number = 10, filters?: { search?: string; role?: string; isActive?: string }) {
     const offset = (page - 1) * limit;
     const conditions = [isNull(user.deletedAt)]; // Always exclude deleted
@@ -121,7 +126,6 @@ export class UserRepository {
     }
 
     if (filters?.role) {
-      // Cast enum to text for comparison if needed
       conditions.push(eq(sql`${user.role}::text`, filters.role));
     }
 
@@ -133,12 +137,62 @@ export class UserRepository {
     return { data, total: Number(total) };
   }
 
-  async create(data: UserDTO) {
-    const result = await database.insert(user).values(data).returning();
-    return result[0];
+  async findOne(id: number) {
+    const [result] = await database.select().from(user).where(and(eq(user.id, id), isNull(user.deletedAt)));
+    return result;
   }
 
-  // Implement update, delete (soft), findOne...
+  async create(data: UserDTO) {
+    const [result] = await database.insert(user).values(data).returning();
+    return result;
+  }
+
+  async update(id: number, data: Partial<UserDTO>) {
+    const [result] = await database.update(user).set(data).where(eq(user.id, id)).returning();
+    return result;
+  }
+
+  async delete(id: number) {
+    // Soft delete
+    const [result] = await database.update(user).set({ deletedAt: new Date() }).where(eq(user.id, id)).returning();
+    return result;
+  }
+}
+```
+
+### B. Join Query Example: `src/queries/pet/pet-join.query.ts`
+
+```typescript
+import { Injectable } from '@nestjs/common';
+import { eq, and, isNull, desc } from 'drizzle-orm';
+import { database } from '@db/connection.db';
+import { pet } from '@db/tables/pet.table';
+import { breed } from '@db/tables/breed.table';
+import { customer } from '@db/tables/customer.table';
+
+@Injectable()
+export class PetJoinQuery {
+  async findAllWithRelations(filters?: { customerId?: number }) {
+    const conditions = [isNull(pet.deletedAt)];
+
+    if (filters?.customerId) {
+      conditions.push(eq(pet.customerId, filters.customerId));
+    }
+
+    return database
+      .select({
+        id: pet.id,
+        name: pet.name,
+        photos: pet.photos,
+        breedName: breed.name,
+        customerName: customer.fullName,
+      })
+      .from(pet)
+      .innerJoin(breed, eq(pet.breedId, breed.id))
+      .innerJoin(customer, eq(pet.customerId, customer.id))
+      .where(and(...conditions))
+      .orderBy(desc(pet.createdAt));
+  }
 }
 ```
 

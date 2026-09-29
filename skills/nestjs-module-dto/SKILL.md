@@ -1,223 +1,136 @@
 ---
 name: nestjs-module-dto
 description: |
-  ESPAÑOL - Guía para CREAR DTOs con VALIDACIÓN y DOCUMENTACIÓN Swagger.
+  ESPAÑOL - Guía esencial para CREAR DTOs con VALIDACIÓN y DOCUMENTACIÓN Swagger.
   Usa esta skill cuando el usuario pida: crear DTO, validar datos, documentar API,
-  agregar validación, class-validator, class-transformer, swagger decorators,
-  crear filtros de búsqueda, paginación, respuestas tipadas, CreateDto, UpdateDto,
-  ListDto, ResultDto, o cualquier tarea relacionada con la transferencia
-  de datos, validación de entrada y documentación OpenAPI/Swagger.
-  Patrones: Create, Update, List/Filter, Result DTOs con type safety.
+  trazabilidad con @Trace({ type: "validation" }), class-validator, class-transformer,
+  CreateDto, UpdateDto, FilterDto, ListDto o ResultDto.
 ---
 
-# NestJS DTO architecture
+# NestJS Module DTOs
 
-This skill defines the standard for Data Transfer Objects. DTOs are critical for:
+This skill defines the standards for Data Transfer Objects (DTOs) with validation and OpenAPI documentation.
 
-1.  **Validation**: Ensuring incoming data is correct (`class-validator`).
-2.  **Documentation**: Auto-generating Swagger/OpenAPI schemas (`@nestjs/swagger`).
-3.  **Type Safety**: Ensuring alignment with Database schemas (`drizzle-orm`).
+## Core Rules
 
-## General Rules
+1. **`@Trace` on DTO Classes**:
+   - Every DTO class **MUST** be decorated with `@Trace({ type: "validation" })` from `traceflow`.
 
-1.  **Explicit Interfaces**: Every object in a response must be a defined class. Do **NOT** use inline types (e.g., `data: { x: 1 }`), as Swagger cannot document them.
-2.  **Strict Typing**: Use `implements` or `PartialType` to enforce synchronization with the DB schema.
-3.  **Defaults**: Always provide examples and defaults in `@ApiProperty`.
+2. **Directory Organization (`src/modules/[module]/dto/`)**:
+   - **Single entity / flat**: `dto/[name]-[type].dto.ts` (e.g. `dto/dashboard-filter.dto.ts`).
+   - **Multi-entity module**: Subfolder per entity `dto/[entity]/[entity]-[type].dto.ts` (e.g. `dto/bath/bath-create.dto.ts`, `dto/bath-type/bath-type-create.dto.ts`).
 
----
+3. **Strict Typing with Table DTO**:
+   - `CreateDto` should implement `Omit<TableDTO, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt'>` to ensure alignment with Drizzle schema.
+   - `UpdateDto` extends `PartialType(CreateDto)` from `@nestjs/swagger`.
 
-## 1. Create DTO (`.dto.ts`)
-
-**Purpose**: Validate payload for creation.
-**Pattern**: Implement `Omit<TableDTO, 'auto_fields'>` to ensure all DB fields are handled.
-
-**Example**: `src/modules/user/dto/user-create.dto.ts`
-
-```typescript
-import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsNotEmpty, IsString, MinLength } from 'class-validator';
-import { userRoleEnum, UserDTO } from '@db/tables/user.table';
-
-// "implements Omit" forces you to define all required fields from the DB schema
-export class UserCreateDto implements Omit<UserDTO, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'fullName' | 'isActive'> {
-  @ApiProperty({
-    example: 'erick@gmail.com',
-    description: 'User email address',
-  })
-  @IsEmail()
-  @IsNotEmpty()
-  email: string;
-
-  @ApiProperty({
-    example: '123456',
-    description: 'User password (min 6 characters)',
-  })
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(6)
-  password: string;
-
-  @ApiProperty({ example: 'Erick', description: 'User first name' })
-  @IsString()
-  @IsNotEmpty()
-  firstName: string;
-
-  @ApiProperty({ example: 'Stip', description: 'User last name' })
-  @IsString()
-  @IsNotEmpty()
-  lastName: string;
-
-  @ApiProperty({
-    enum: userRoleEnum.enumValues,
-    default: userRoleEnum.enumValues[0],
-    description: 'User role',
-  })
-  @IsNotEmpty()
-  @IsEnum(userRoleEnum.enumValues)
-  role: (typeof userRoleEnum.enumValues)[number];
-}
-```
+4. **Synchronize Validation & Documentation**:
+   - Required fields: `@ApiProperty(...)` + `@IsNotEmpty()` + type validator (`@IsString()`, `@IsInt()`, etc.).
+   - Optional fields: `@ApiPropertyOptional(...)` + `@IsOptional()`.
+   - Query params & Dates: Use `@Type(() => Number)` or `@Type(() => Date)` from `class-transformer`.
 
 ---
 
-## 2. Update DTO (`.dto.ts`)
-
-**Purpose**: partial updates.
-**Pattern**: Extend `PartialType` from `@nestjs/swagger` (NOT mapped-types) to inherit Swagger metadata.
-
-**Example**: `src/modules/user/dto/user-update.dto.ts`
-
-```typescript
-import { PartialType } from '@nestjs/swagger';
-import { UserCreateDto } from './user-create.dto';
-
-export class UserUpdateDto extends PartialType(UserCreateDto) {}
-```
-
----
-
-## 3. List & Filter DTO (`.dto.ts`)
-
-**Purpose**: define query parameters (`?page=1&search=...`) and the paginated response structure.
-
-**Example**: `src/modules/user/dto/user-list.dto.ts`
+## 1. Create DTO (`*-create.dto.ts`)
 
 ```typescript
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsEnum, IsArray, IsInt, IsDate } from 'class-validator';
 import { Type } from 'class-transformer';
-import { userRoleEnum } from '@db/tables/user.table';
+import { bathStatusEnum, BathDTO } from '@db/tables/bath.table';
+import { Trace } from 'traceflow';
 
-// 1. Filter DTO (Query Params)
-export class UserListFiltersDto {
-  @ApiPropertyOptional({ description: 'Page number', default: 1 })
-  @Type(() => Number) // Convert string query param to number
-  @IsNumber()
-  @Min(1)
+@Trace({ type: "validation" })
+export class BathCreateDto implements Omit<BathDTO, 'id' | 'createdAt' | 'updatedAt' | 'deletedAt'> {
+  @ApiProperty({ example: 1, description: 'Pet ID' })
+  @IsNotEmpty()
+  @IsInt()
+  petId: number;
+
+  @ApiProperty({ example: '2024-12-01T10:00:00Z', description: 'Scheduled date' })
+  @IsNotEmpty()
+  @Type(() => Date)
+  @IsDate()
+  scheduledDate: Date;
+
+  @ApiPropertyOptional({
+    enum: bathStatusEnum.enumValues,
+    default: bathStatusEnum.enumValues[0],
+    description: 'Bath status',
+  })
   @IsOptional()
-  page?: number = 1;
+  @IsEnum(bathStatusEnum.enumValues)
+  status?: (typeof bathStatusEnum.enumValues)[number];
 
-  @ApiPropertyOptional({ description: 'Items per page', default: 10 })
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
+  @ApiPropertyOptional({ example: ['https://photo.jpg'], description: 'Photos array' })
   @IsOptional()
-  limit?: number = 10;
+  @IsArray()
+  @IsString({ each: true })
+  photos_before?: string[];
 
-  @ApiPropertyOptional({ description: 'Search term' })
+  @ApiPropertyOptional({ example: 'Some notes', description: 'Additional notes' })
+  @IsOptional()
   @IsString()
-  @IsOptional()
-  search?: string;
-
-  @ApiPropertyOptional({ enum: userRoleEnum.enumValues })
-  @IsEnum(userRoleEnum.enumValues)
-  @IsOptional()
-  role?: (typeof userRoleEnum.enumValues)[number];
-}
-
-// 2. Item DTO (Single row in the list)
-export class UserListItemDto {
-  @ApiProperty({ example: 1 })
-  id: number;
-
-  @ApiProperty({ example: 'erick@gmail.com' })
-  email: string;
-
-  @ApiProperty({ example: 'Erick Santos' })
-  fullName: string;
-
-  @ApiProperty({ example: 'admin', enum: userRoleEnum.enumValues })
-  role: (typeof userRoleEnum.enumValues)[number];
-
-  @ApiProperty({ example: 'true' })
-  isActive: string;
-
-  @ApiProperty()
-  createdAt: Date;
-}
-
-// 3. Metadata DTO
-export class PaginationMetaDto {
-  @ApiProperty() total: number;
-  @ApiProperty() page: number;
-  @ApiProperty() limit: number;
-  @ApiProperty() totalPages: number;
-  @ApiProperty() hasNextPage: boolean;
-  @ApiProperty() hasPreviousPage: boolean;
-}
-
-// 4. Main Response DTO (The object returned by the Controller)
-export class UserListDto {
-  @ApiProperty({ type: [UserListItemDto] }) // Explicit type is mandatory for Arrays
-  data: UserListItemDto[];
-
-  @ApiProperty({ type: PaginationMetaDto })
-  meta: PaginationMetaDto;
+  notes?: string;
 }
 ```
 
 ---
 
-## 4. Result DTO (`.dto.ts`)
-
-**Purpose**: Return a single entity detail (e.g., `findOne`).
-**Pattern**: Can implement `Omit<TableInterface>` to ensure fields match logic (e.g. no password).
-
-**Example**: `src/modules/user/dto/user-result.dto.ts`
+## 2. Update DTO (`*-update.dto.ts`)
 
 ```typescript
-import { ApiProperty } from '@nestjs/swagger';
-import { User, userRoleEnum } from '@db/tables/user.table';
+import { PartialType } from '@nestjs/swagger';
+import { BathCreateDto } from './bath-create.dto';
+import { Trace } from 'traceflow';
 
-export class UserResultDto implements Omit<User, 'password'> {
-  @ApiProperty()
-  id: number;
+@Trace({ type: "validation" })
+export class BathUpdateDto extends PartialType(BathCreateDto) {}
+```
 
-  @ApiProperty()
-  createdAt: Date;
+---
 
-  @ApiProperty()
-  updatedAt: Date;
+## 3. Filter / Query DTO (`*-filter.dto.ts` or `*-list.dto.ts`)
 
-  @ApiProperty({ required: false, nullable: true })
-  deletedAt: Date | null;
+```typescript
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsDateString, IsNumber, IsOptional, IsIn, IsInt, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { Trace } from 'traceflow';
 
-  @ApiProperty()
-  email: string;
+@Trace({ type: "validation" })
+export class DashboardFilterDto {
+  @ApiProperty({ example: '2024-01-01', description: 'Start date YYYY-MM-DD' })
+  @IsDateString()
+  startDate: string;
 
-  @ApiProperty()
-  firstName: string;
+  @ApiProperty({ example: '2024-01-31', description: 'End date YYYY-MM-DD' })
+  @IsDateString()
+  endDate: string;
 
-  @ApiProperty()
-  lastName: string;
+  @ApiPropertyOptional({ example: 1, description: 'Branch ID filter' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  branchId?: number;
 
-  @ApiProperty()
-  fullName: string;
+  @ApiPropertyOptional({ example: 1, default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
 
-  @ApiProperty({ enum: userRoleEnum.enumValues })
-  role: (typeof userRoleEnum.enumValues)[number];
+  @ApiPropertyOptional({ example: 10, default: 10 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number = 10;
 
-  @ApiProperty()
-  isActive: string;
+  @ApiPropertyOptional({ enum: ['all', 'bath', 'treatment'], default: 'all' })
+  @IsOptional()
+  @IsIn(['all', 'bath', 'treatment'])
+  type?: 'all' | 'bath' | 'treatment' = 'all';
 }
 ```
