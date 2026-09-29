@@ -1,0 +1,3 @@
+name: nestjs-swagger
+version: "0.1.0"
+description: Swagger y validación global en NestJS

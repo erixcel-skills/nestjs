@@ -1,0 +1,3 @@
+name: nestjs-create-table
+version: "0.1.0"
+description: Creación de tablas con Drizzle ORM en NestJS
